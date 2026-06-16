@@ -6,6 +6,10 @@ import psycopg2
 import psycopg2.extras
 import resend
 
+@app.route('/ping', methods=['GET'])
+def ping():
+    return jsonify({"status": "ok"}), 200
+
 app = Flask(__name__)
 
 # Configurações (serão preenchidas pelas variáveis de ambiente do Render)
