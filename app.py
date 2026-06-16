@@ -6,11 +6,11 @@ import psycopg2
 import psycopg2.extras
 import resend
 
+app = Flask(__name__)
+
 @app.route('/ping', methods=['GET'])
 def ping():
     return jsonify({"status": "ok"}), 200
-
-app = Flask(__name__)
 
 # Configurações (serão preenchidas pelas variáveis de ambiente do Render)
 DATABASE_URL = os.getenv("DATABASE_URL")          # "DATABASE_URL" é o nome da variável
