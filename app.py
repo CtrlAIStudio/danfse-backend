@@ -61,12 +61,15 @@ def send_license_email(to_email, license_key, plan):
     <p>Sua chave de licença:</p>
     <h2 style="background:#f0f0f0;padding:10px;border-radius:5px;">{license_key}</h2>
     <p>Baixe o programa em: <a href="https://crtlaistudios.top/DANFSePDF/">crtlaistudios.top/DANFSePDF/</a></p>
+    <br>
+    <p style="color:#888; font-size:12px;">Este é um e-mail automático. Por favor, não responda a esta mensagem.</p>
     """
     params = {
-        "from": "DANFS-e PDF <licenca@crtlaistudios.top>",
+        "from": "DANFS-e PDF <suporte@crtlaistudios.top>",
         "to": [to_email],
         "subject": subject,
-        "html": html
+        "html": html,
+        "reply_to": "noreply@crtlaistudios.top"  
     }
     r = resend.Emails.send(params)
     print(f"E-mail enviado para {to_email}: {r}")
@@ -74,7 +77,7 @@ def send_license_email(to_email, license_key, plan):
 # ---------- WEBHOOK KIWIFY ----------
 @app.route('/webhook/kiwify', methods=['POST'])
 def kiwify_webhook():
-    # 1. VALIDAÇÃO DO TOKEN (passado como ?token=... na URL)
+    # 1. VALIDAÇÃO DO TOKEN
     token = request.args.get('token')
     if token != WEBHOOK_TOKEN:
         return jsonify({"error": "Acesso não autorizado. Token inválido."}), 401
@@ -83,57 +86,44 @@ def kiwify_webhook():
     if not data:
         return jsonify({"error": "Payload vazio"}), 400
 
-    # LOG COMPLETO PARA DESCOBRIR OS IDs
     print("--- NOVO PAYLOAD RECEBIDO DO KIWIFY ---")
     print(data)
     print("---------------------------------------")
 
-    # 2. CAPTURA DOS DADOS (compatível com formatos do Kiwify)
+    # 2. EXTRAÇÃO DOS DADOS
     order_status = (data.get('order_status') or data.get('status', '')).lower()
-    
+
     customer_data = data.get('Customer') or data.get('customer') or {}
     email = customer_data.get('email') or data.get('customer_email')
 
     product_data = data.get('Product') or data.get('product') or {}
-    product_id = str(product_data.get('id') or data.get('product_id', ''))
-
-    offer_data = data.get('Offer') or data.get('offer') or {}
-    offer_id = str(offer_data.get('id') or data.get('offer_id', ''))
+    # Campo correto: 'product_id' (não 'id')
+    product_id = str(product_data.get('product_id') or data.get('product_id', ''))
 
     if not email:
         return jsonify({"error": "Email do comprador não encontrado"}), 400
 
-    # 3. LÓGICA DE NEGÓCIO
-    if order_status in ['paid', 'approved']:
-        # --- MAPEAMENTO DE PLANOS (ATUALIZE COM OS IDs REAIS) ---
-        if product_id == 'ID_REAL_DO_PRODUTO_VITALICIO':
-            plan = 'lifetime'
-            max_activations = 2
-        elif offer_id == 'ID_REAL_DA_OFERTA_ANUAL':
-            plan = 'yearly'
-            max_activations = 1
-        elif offer_id == 'ID_REAL_DA_OFERTA_MENSAL':
-            plan = 'monthly'
-            max_activations = 1
-        else:
-            # Fallback: use enquanto ainda não tem os IDs
-            plan = 'monthly'
-            max_activations = 1
+    # 3. MAPEAMENTO DE PLANOS (substitua pelos seus IDs reais)
+    plan_map = {
+        'be7f32a0-6960-11f1-898f-bfa154be5a31': 'monthly',
+        '5f9b49c0-6962-11f1-846b-d3e350854580': 'yearly',
+        'c51001d0-6965-11f1-bcb7-c7a45546616b': 'lifetime'
+    }
+    plan = plan_map.get(product_id, 'monthly')
+    max_activations = 2 if plan == 'lifetime' else 1
 
+    # 4. AÇÃO CONFORME STATUS
+    if order_status in ['paid', 'approved', 'renewed']:   # <-- adicionado 'renewed'
         license_key = str(uuid.uuid4())
-        
         try:
             conn = get_db()
             cur = conn.cursor()
-            # IMPORTANTE: a cláusula ON CONFLICT (email) exige que email seja UNIQUE ou tenha índice único
-            # Como email pode ter várias licenças, melhor remover o ON CONFLICT e sempre inserir
             cur.execute("""
                 INSERT INTO licenses (license_key, email, plan, max_activations, is_active)
                 VALUES (%s, %s, %s, %s, TRUE)
             """, (license_key, email, plan, max_activations))
             conn.commit()
             conn.close()
-            
             send_license_email(email, license_key, plan)
             return jsonify({"status": "success", "action": "license_processed"}), 200
         except Exception as e:
